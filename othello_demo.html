@@ -1,0 +1,462 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>オセロAI 対戦ビジュアライザー</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;padding:20px;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Hiragino Sans","Yu Gothic",sans-serif;background:#f5f6f8;color:#222}
+h1{margin-top:0;font-size:26px}
+.container{max-width:1100px;margin:auto}
+.main{display:grid;grid-template-columns:minmax(0,1fr) 320px;gap:24px}
+.panel{background:#fff;border:1px solid #ddd;border-radius:12px;padding:16px}
+.status-area{display:flex;justify-content:space-between;gap:10px;align-items:center;margin-bottom:14px;flex-wrap:wrap}
+#status{font-size:20px;font-weight:bold}
+#substatus{color:#666;font-size:14px;margin-top:4px}
+.score-board{display:flex;gap:14px;flex-wrap:wrap}
+.board{width:min(100%,600px);margin:auto;display:grid;grid-template-columns:repeat(8,1fr);background:#123b28;border:5px solid #252525;aspect-ratio:1/1}
+.cell{position:relative;background:#228b57;border:1px solid rgba(0,0,0,.35);padding:0}
+.disc{position:absolute;top:10%;left:10%;width:80%;height:80%;border-radius:50%}
+.black{background:#111;box-shadow:inset 0 2px 4px rgba(255,255,255,.2),0 2px 4px rgba(0,0,0,.3)}
+.white{background:#fafafa;border:1px solid #bbb;box-shadow:inset 0 2px 4px rgba(0,0,0,.1),0 2px 4px rgba(0,0,0,.25)}
+.legal::after{content:"";position:absolute;width:16%;height:16%;top:42%;left:42%;border-radius:50%;background:rgba(255,255,255,.55)}
+.last{box-shadow:inset 0 0 0 4px #ffd700}
+.controls{display:flex;justify-content:center;flex-wrap:wrap;gap:10px;margin-top:16px}
+button{border:none;border-radius:8px;padding:10px 18px;font-size:15px;cursor:pointer;background:#e9e9e9}
+button:hover{background:#ddd}
+.primary{color:#fff;background:#1769e0}
+.primary:hover{background:#0f56bc}
+.ai-info{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-top:16px}
+.info-box{background:#fff;border:1px solid #ddd;border-radius:10px;padding:12px}
+.info-label{color:#777;font-size:12px}
+.info-value{margin-top:5px;font-size:18px;font-weight:bold}
+.sidebar{display:flex;flex-direction:column;gap:16px}
+textarea{width:100%;resize:vertical;margin-top:10px;border:1px solid #ccc;border-radius:8px;padding:10px;font-family:Consolas,Monaco,monospace;font-size:12px}
+.settings{display:grid;grid-template-columns:1fr auto;gap:8px;margin-top:12px}
+.setting-name{color:#666}
+.setting-value{font-weight:bold}
+.speed-area{margin-top:16px}
+.speed-row{display:flex;align-items:center;gap:10px;margin-top:8px}
+#speed{width:100%}
+.log{max-height:300px;overflow-y:auto;margin-top:10px;padding:8px;background:#f6f6f6;border-radius:8px;font-family:Consolas,Monaco,monospace;font-size:12px;line-height:1.8}
+.message{margin-top:8px;color:#555;font-size:12px}
+@media(max-width:850px){.main{grid-template-columns:1fr}.sidebar{order:2}}
+@media(max-width:500px){body{padding:8px}h1{font-size:21px}.ai-info{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="container">
+<h1>オセロAI 対戦ビジュアライザー</h1>
+
+<div class="main">
+<div>
+<div class="panel">
+<div class="status-area">
+<div>
+<div id="status">黒AIの手番</div>
+<div id="substatus">合法手を計算しています</div>
+</div>
+<div class="score-board">
+<div>● 黒 <strong id="blackCount">2</strong></div>
+<div>○ 白 <strong id="whiteCount">2</strong></div>
+<div>空 <strong id="emptyCount">60</strong></div>
+</div>
+</div>
+
+<div id="board" class="board"></div>
+
+<div class="controls">
+<button id="stepBtn" class="primary">1手進む</button>
+<button id="autoBtn">自動再生</button>
+<button id="resetBtn">リセット</button>
+</div>
+
+<div class="ai-info">
+<div class="info-box"><div class="info-label">直前の手</div><div id="lastMove" class="info-value">—</div></div>
+<div class="info-box"><div class="info-label">探索深さ</div><div id="depthInfo" class="info-value">—</div></div>
+<div class="info-box"><div class="info-label">評価値</div><div id="scoreInfo" class="info-value">—</div></div>
+</div>
+
+<div class="speed-area">
+<label>自動再生速度</label>
+<div class="speed-row">
+<input id="speed" type="range" min="100" max="1500" step="50" value="500">
+<span id="speedText">0.5秒</span>
+</div>
+</div>
+</div>
+</div>
+
+<div class="sidebar">
+<div class="panel">
+<h3>AI設定</h3>
+<p>Pythonコードから評価関数の設定値を読み取ります。</p>
+<textarea id="codeInput" rows="14">TIME_LIMIT = 0.05
+
+W_POSITION = 1
+W_MOBILITY = 8
+W_CORNER = 30
+W_FRONTIER = 3
+W_DISC_LATE = 4</textarea>
+<button id="applyCodeBtn" class="primary" style="margin-top:10px;width:100%;">設定を読み取る</button>
+<div id="parseMsg" class="message"></div>
+</div>
+
+<div class="panel">
+<h3>現在の評価重み</h3>
+<div class="settings">
+<div class="setting-name">位置</div><div id="wPos" class="setting-value">1</div>
+<div class="setting-name">モビリティ</div><div id="wMob" class="setting-value">8</div>
+<div class="setting-name">角</div><div id="wCorner" class="setting-value">30</div>
+<div class="setting-name">フロンティア</div><div id="wFront" class="setting-value">3</div>
+<div class="setting-name">終盤石数</div><div id="wDisc" class="setting-value">4</div>
+</div>
+</div>
+
+<div class="panel">
+<h3>対局ログ</h3>
+<div id="log" class="log"></div>
+</div>
+</div>
+</div>
+</div>
+
+<script>
+const DIRECTIONS=[[-1,-1],[-1,0],[-1,1],[0,-1],[0,1],[1,-1],[1,0],[1,1]];
+const WEIGHT_MAP=[
+[100,-20,10,5,5,10,-20,100],
+[-20,-50,-2,-2,-2,-2,-50,-20],
+[10,-2,1,1,1,1,-2,10],
+[5,-2,1,0,0,1,-2,5],
+[5,-2,1,0,0,1,-2,5],
+[10,-2,1,1,1,1,-2,10],
+[-20,-50,-2,-2,-2,-2,-50,-20],
+[100,-20,10,5,5,10,-20,100]
+];
+const CORNERS=[[0,0],[0,7],[7,0],[7,7]];
+let config={TIME_LIMIT:0.05,W_POSITION:1,W_MOBILITY:8,W_CORNER:30,W_FRONTIER:3,W_DISC_LATE:4};
+let board,player,lastMove,passCount,moveNumber,autoPlaying=false,autoTimer=null;
+
+function $(id){return document.getElementById(id)}
+
+function resetGame(){
+  board=Array.from({length:8},()=>Array(8).fill(0));
+  board[3][3]=-1; board[3][4]=1; board[4][3]=1; board[4][4]=-1;
+  player=1; lastMove=null; passCount=0; moveNumber=0; autoPlaying=false;
+  if(autoTimer){clearTimeout(autoTimer);autoTimer=null}
+  $("autoBtn").textContent="自動再生";
+  $("lastMove").textContent="—";
+  $("depthInfo").textContent="—";
+  $("scoreInfo").textContent="—";
+  $("log").innerHTML="";
+  renderBoard();
+}
+
+function inside(r,c){return r>=0&&r<8&&c>=0&&c<8}
+
+function getFlips(currentBoard,currentPlayer,r,c){
+  if(!inside(r,c)||currentBoard[r][c]!==0)return [];
+  let allFlips=[];
+  for(const [dr,dc] of DIRECTIONS){
+    let y=r+dr,x=c+dc,temp=[];
+    while(inside(y,x)&&currentBoard[y][x]===-currentPlayer){
+      temp.push([y,x]);y+=dr;x+=dc;
+    }
+    if(temp.length>0&&inside(y,x)&&currentBoard[y][x]===currentPlayer){
+      allFlips.push(...temp);
+    }
+  }
+  return allFlips;
+}
+
+function legalMoves(currentBoard,currentPlayer){
+  let moves=[];
+  for(let r=0;r<8;r++){
+    for(let c=0;c<8;c++){
+      if(currentBoard[r][c]===0&&getFlips(currentBoard,currentPlayer,r,c).length>0)moves.push([r,c]);
+    }
+  }
+  return moves;
+}
+
+function applyMove(currentBoard,currentPlayer,move){
+  const nextBoard=currentBoard.map(row=>row.slice());
+  const [r,c]=move;
+  const flips=getFlips(nextBoard,currentPlayer,r,c);
+  nextBoard[r][c]=currentPlayer;
+  for(const [y,x] of flips)nextBoard[y][x]=currentPlayer;
+  return nextBoard;
+}
+
+function countStones(currentBoard,currentPlayer){
+  let count=0;
+  for(const row of currentBoard)for(const value of row)if(value===currentPlayer)count++;
+  return count;
+}
+
+function evaluate(currentBoard,currentPlayer,myMobility){
+  let position=0,frontier=0,myDiscs=0,opponentDiscs=0,emptyCount=0;
+  for(let r=0;r<8;r++){
+    for(let c=0;c<8;c++){
+      const value=currentBoard[r][c];
+      if(value===0){emptyCount++;continue}
+      const sign=value===currentPlayer?1:-1;
+      position+=sign*WEIGHT_MAP[r][c];
+      if(value===currentPlayer)myDiscs++;else opponentDiscs++;
+      for(const [dr,dc] of DIRECTIONS){
+        const y=r+dr,x=c+dc;
+        if(inside(y,x)&&currentBoard[y][x]===0){frontier+=sign;break}
+      }
+    }
+  }
+
+  let cornerScore=0;
+  for(const [r,c] of CORNERS){
+    const value=currentBoard[r][c];
+    if(value!==0)cornerScore+=value===currentPlayer?1:-1;
+  }
+
+  const opponentMobility=legalMoves(currentBoard,-currentPlayer).length;
+  let score=
+    config.W_POSITION*position+
+    config.W_MOBILITY*(myMobility-opponentMobility)+
+    config.W_CORNER*cornerScore-
+    config.W_FRONTIER*frontier;
+
+  if(emptyCount<=12)score+=config.W_DISC_LATE*(myDiscs-opponentDiscs);
+  return score;
+}
+
+function finalScore(currentBoard,currentPlayer){
+  const diff=countStones(currentBoard,currentPlayer)-countStones(currentBoard,-currentPlayer);
+  if(diff>0)return 100000+diff;
+  if(diff<0)return -100000+diff;
+  return 0;
+}
+
+function orderMoves(moves){
+  return moves.slice().sort((a,b)=>WEIGHT_MAP[b[0]][b[1]]-WEIGHT_MAP[a[0]][a[1]]);
+}
+
+function negamax(currentBoard,currentPlayer,depth,alpha,beta,passed,deadline){
+  if(performance.now()>deadline)throw new Error("TIME");
+  let moves=legalMoves(currentBoard,currentPlayer);
+
+  if(moves.length===0){
+    if(passed)return finalScore(currentBoard,currentPlayer);
+    return -negamax(currentBoard,-currentPlayer,depth,-beta,-alpha,true,deadline);
+  }
+
+  if(depth===0)return evaluate(currentBoard,currentPlayer,moves.length);
+
+  moves=orderMoves(moves);
+  let best=-Infinity;
+  for(const move of moves){
+    const child=applyMove(currentBoard,currentPlayer,move);
+    const score=-negamax(child,-currentPlayer,depth-1,-beta,-alpha,false,deadline);
+    if(score>best)best=score;
+    if(best>alpha)alpha=best;
+    if(alpha>=beta)break;
+  }
+  return best;
+}
+
+function chooseMove(currentBoard,currentPlayer){
+  let moves=orderMoves(legalMoves(currentBoard,currentPlayer));
+  if(moves.length===0)return null;
+  if(moves.length===1)return {move:moves[0],score:0,depth:1};
+
+  let bestMove=moves[0],bestScore=-Infinity,completedDepth=0;
+  const thinkTime=Math.max(8,Math.min(80,config.TIME_LIMIT*1000));
+  const deadline=performance.now()+thinkTime;
+
+  for(let depth=1;depth<=8;depth++){
+    let localBest=bestMove,localScore=-Infinity,alpha=-Infinity;
+    const beta=Infinity;
+    const ordered=[bestMove,...moves.filter(move=>move[0]!==bestMove[0]||move[1]!==bestMove[1])];
+
+    try{
+      for(const move of ordered){
+        const child=applyMove(currentBoard,currentPlayer,move);
+        const score=-negamax(child,-currentPlayer,depth-1,-beta,-alpha,false,deadline);
+        if(score>localScore){localScore=score;localBest=move}
+        if(score>alpha)alpha=score;
+      }
+    }catch(error){
+      if(error.message==="TIME")break;
+      throw error;
+    }
+
+    bestMove=localBest;
+    bestScore=localScore;
+    completedDepth=depth;
+    if(Math.abs(bestScore)>=100000)break;
+  }
+
+  return {move:bestMove,score:bestScore,depth:completedDepth};
+}
+
+function stepGame(){
+  if(gameOver()){finishGame();return}
+
+  let moves=legalMoves(board,player);
+
+  if(moves.length===0){
+    passCount++;
+    addLog((player===1?"黒":"白")+"：パス");
+    player=-player;
+    renderBoard();
+    if(passCount>=2)finishGame();
+    return;
+  }
+
+  passCount=0;
+  const playerName=player===1?"黒":"白";
+  const result=chooseMove(board,player);
+  if(!result)return;
+
+  board=applyMove(board,player,result.move);
+  lastMove=result.move;
+  moveNumber++;
+
+  $("lastMove").textContent=coordinate(result.move);
+  $("depthInfo").textContent=result.depth;
+  $("scoreInfo").textContent=Number.isFinite(result.score)?Math.round(result.score):"—";
+
+  addLog(
+    moveNumber+"手目 "+playerName+" "+coordinate(result.move)+
+    " / 深さ "+result.depth+
+    " / 評価 "+(Number.isFinite(result.score)?Math.round(result.score):"—")
+  );
+
+  player=-player;
+  renderBoard();
+  if(gameOver())finishGame();
+}
+
+function gameOver(){
+  return legalMoves(board,1).length===0&&legalMoves(board,-1).length===0;
+}
+
+function finishGame(){
+  autoPlaying=false;
+  if(autoTimer){clearTimeout(autoTimer);autoTimer=null}
+  $("autoBtn").textContent="自動再生";
+
+  const black=countStones(board,1);
+  const white=countStones(board,-1);
+  let result;
+  if(black>white)result="黒の勝ち";
+  else if(white>black)result="白の勝ち";
+  else result="引き分け";
+
+  $("status").textContent=result;
+  $("substatus").textContent="対局終了 "+black+" - "+white;
+  addLog("対局終了："+result+" "+black+" - "+white);
+}
+
+function coordinate(move){
+  const row=move[0],col=move[1];
+  return String.fromCharCode(65+col)+(row+1);
+}
+
+function addLog(text){
+  const line=document.createElement("div");
+  line.textContent=text;
+  $("log").prepend(line);
+}
+
+function renderBoard(){
+  const boardElement=$("board");
+  boardElement.innerHTML="";
+
+  const moves=legalMoves(board,player);
+  const legalSet=new Set(moves.map(move=>move.join(",")));
+  const lastKey=lastMove?lastMove.join(","):"";
+
+  for(let r=0;r<8;r++){
+    for(let c=0;c<8;c++){
+      const cell=document.createElement("div");
+      cell.className="cell";
+      const key=r+","+c;
+
+      if(legalSet.has(key))cell.classList.add("legal");
+      if(key===lastKey)cell.classList.add("last");
+
+      if(board[r][c]!==0){
+        const disc=document.createElement("div");
+        disc.className="disc "+(board[r][c]===1?"black":"white");
+        cell.appendChild(disc);
+      }
+
+      boardElement.appendChild(cell);
+    }
+  }
+
+  const black=countStones(board,1);
+  const white=countStones(board,-1);
+  $("blackCount").textContent=black;
+  $("whiteCount").textContent=white;
+  $("emptyCount").textContent=64-black-white;
+
+  if(!gameOver()){
+    $("status").textContent=(player===1?"黒AI":"白AI")+"の手番";
+    $("substatus").textContent=moves.length?"合法手 "+moves.length+"か所":"合法手なし → パス";
+  }
+}
+
+function autoPlay(){
+  if(!autoPlaying)return;
+  stepGame();
+  if(!autoPlaying||gameOver())return;
+  autoTimer=setTimeout(autoPlay,Number($("speed").value));
+}
+
+function parsePythonSettings(){
+  const text=$("codeInput").value;
+  const names=["TIME_LIMIT","W_POSITION","W_MOBILITY","W_CORNER","W_FRONTIER","W_DISC_LATE"];
+  let found=0;
+
+  for(const name of names){
+    const regex=new RegExp("\\b"+name+"\\s*=\\s*(-?\\d+(?:\\.\\d+)?)");
+    const match=text.match(regex);
+    if(match){
+      let value=Number(match[1]);
+      if(!Number.isFinite(value))continue;
+      if(name==="TIME_LIMIT")value=Math.max(0.008,Math.min(0.08,value));
+      else value=Math.max(-1000,Math.min(1000,value));
+      config[name]=value;
+      found++;
+    }
+  }
+
+  updateSettingDisplay();
+  $("parseMsg").textContent=found>0?found+"個の設定を読み取りました。":"読み取れる設定がありませんでした。";
+}
+
+function updateSettingDisplay(){
+  $("wPos").textContent=config.W_POSITION;
+  $("wMob").textContent=config.W_MOBILITY;
+  $("wCorner").textContent=config.W_CORNER;
+  $("wFront").textContent=config.W_FRONTIER;
+  $("wDisc").textContent=config.W_DISC_LATE;
+}
+
+$("stepBtn").addEventListener("click",()=>{if(!autoPlaying)stepGame()});
+$("autoBtn").addEventListener("click",()=>{
+  autoPlaying=!autoPlaying;
+  $("autoBtn").textContent=autoPlaying?"一時停止":"自動再生";
+  if(autoPlaying)autoPlay();
+  else if(autoTimer){clearTimeout(autoTimer);autoTimer=null}
+});
+$("resetBtn").addEventListener("click",resetGame);
+$("applyCodeBtn").addEventListener("click",parsePythonSettings);
+$("speed").addEventListener("input",()=>{
+  $("speedText").textContent=(Number($("speed").value)/1000).toFixed(2)+"秒";
+});
+
+resetGame();
+</script>
+</body>
+</html>
